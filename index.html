@@ -193,6 +193,28 @@ const $ = id => document.getElementById(id);
 const fmt = n => (Number(n)||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 let rootHandle = null, customers = [];
 
+/* ---------- MAIL (Google Apps Script web app URL) ---------- */
+const MAIL_URL = 'https://script.google.com/macros/s/AKfycbzB9dSYUqV2GNVWRLrxyzbdiYGv9FZsvnyFmQJi3WgAYavCIsm0Y_wB7uB0X9l4bXcSKg/exec';
+
+async function sendInvoiceMail(){
+  if(!MAIL_URL || MAIL_URL.startsWith('PASTE')) return;
+  const [y,m,d] = $('invDate').value.split('-');
+  const payload = {
+    company: $('pName').value.trim(),
+    total:   $('tG').textContent,
+    date:    `${d}-${m}-${y}`,
+    gst:     $('pGst').value.trim() || '-',
+    invNo:   $('invNo').value,
+    type:    $('docType').options[$('docType').selectedIndex].text
+  };
+  try{
+    await fetch(MAIL_URL, {method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(payload)});
+    toast('📧 Mail sent: shivshaktitrading0816@gmail.com');
+  }catch(e){ toast('Mail error: '+e.message); }
+}
+
 /* ---------- toast ---------- */
 function toast(msg, ms=5000){ const t=$('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',ms); }
 
@@ -445,6 +467,7 @@ async function saveInvoice(){
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));
     a.download=fileBase+'.html'; a.click();
     toast('No folder selected, so the file was saved to Downloads: '+fileBase+'.html');
+    sendInvoiceMail();
     return;
   }
   try{
@@ -463,6 +486,7 @@ async function saveInvoice(){
     if(!isNaN(invN)) await writeInvFile(invN);
     localStorage.setItem('lastInv',$('invNo').value);
     toast(`✅ Saved\n${root.name}/${typeName}/${y}/${monthName}/${d}/${name}`);
+    sendInvoiceMail();
   }catch(e){ toast('Error while saving: '+e.message); }
 }
 
@@ -492,8 +516,23 @@ document.querySelectorAll('textarea').forEach(t=>t.addEventListener('input',()=>
   // previously selected folder
   try{
     const h=await idbGet('root');
-    if(h){ rootHandle=h; $('folderInfo').textContent='📁 Folder: '+h.name+' (permission will be asked when you click Save)';
-      if(await h.queryPermission({mode:'readwrite'})==='granted'){ await loadCustomersFromFolder(); await syncInvoiceNo(); } }
+    if(h){ rootHandle=h; $('folderInfo').textContent='📁 Folder: '+h.name;
+      if(await h.queryPermission({mode:'readwrite'})==='granted'){ await loadCustomersFromFolder(); await syncInvoiceNo(); }
+      else{
+        // After refresh the browser needs one click to allow folder access. Do it on the first click anywhere on the page.
+        $('folderInfo').textContent='📁 Folder: '+h.name+' (click anywhere on the page once to allow access)';
+        toast('Click anywhere on the page once so the invoice number can be read from the folder.');
+        const once = async ()=>{
+          document.removeEventListener('click', once, true);
+          try{
+            if(await ensurePerm(h)){
+              $('folderInfo').textContent='📁 Folder: '+h.name;
+              await loadCustomersFromFolder(); await syncInvoiceNo();
+            }
+          }catch(e){}
+        };
+        document.addEventListener('click', once, true);
+      } }
   }catch(e){}
 })();
 </script>
